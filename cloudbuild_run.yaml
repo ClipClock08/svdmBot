@@ -1,0 +1,17 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args: [ "build", "-t", "gcr.io/svdm-test/svdmtgbot", "."]
+
+  - name: "gcr.io/cloud-builders/docker"
+    args: [ "push", "gcr.io/svdm-test/svdmtgbot" ]
+
+  # Step to deploy the container image to Cloud Run
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'svdmtgbot'
+      - '--image=gcr.io/svdm-test/svdmtgbot'
+      - '--platform=managed'
+      - '--region=europe-central2'
+  #      - '--set-env-vars=BOT_TOKEN=-,CHAT_ID=-'
