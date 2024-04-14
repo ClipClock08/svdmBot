@@ -1,20 +1,28 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
 var (
 	bot    *tgbotapi.BotAPI
 	chatID *int64
 )
+
+type Request struct {
+	Method string
+	Body   json.RawMessage
+}
 
 func init() {
 	var err error
@@ -41,42 +49,65 @@ func init() {
 	}
 }
 
-func main() {
-	bot.Debug = true
+func webhook(res http.ResponseWriter, req *http.Request) {
+	if req.Method == http.MethodPost {
+		var raw Request
+		if err := json.NewDecoder(req.Body).Decode(&raw); err != nil {
+			http.Error(res, err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer req.Body.Close()
 
-	log.Printf("Authorized on account %s", bot.Self.UserName)
+		bot.Debug = true
 
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
+		log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	updates, err := bot.GetUpdatesChan(u)
-	if err != nil {
-		log.Printf("%s", err)
-	}
+		u := tgbotapi.NewUpdate(0)
+		u.Timeout = 60
 
-	for update := range updates {
-		if update.Message == nil {
-			continue
+		updates, err := bot.GetUpdatesChan(u)
+		if err != nil {
+			log.Printf("%s", err)
 		}
 
-		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
-
-		switch update.Message.Command() {
-		case "answer":
-			values := strings.Split(update.Message.Text, ",")
-			answerChatID := extractNumber(values[0])
-			answerText := strings.TrimSpace(values[1])
-			if err != nil {
-				log.Printf("%s", err)
+		for update := range updates {
+			if update.Message == nil {
+				continue
 			}
-			answerMessage(bot, fmt.Sprintf("Відповідь адміністратора: %s", answerText), int64(answerChatID))
-		case "start":
-			continue
-		default:
-			forwardMessage(bot, update.Message, *chatID)
-			responseMessage(bot, update.Message)
+
+			log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
+
+			switch update.Message.Command() {
+			case "answer":
+				values := strings.Split(update.Message.Text, ",")
+				answerChatID := extractNumber(values[0])
+				answerText := strings.TrimSpace(values[1])
+				if err != nil {
+					log.Printf("%s", err)
+				}
+				answerMessage(bot, fmt.Sprintf("Відповідь адміністратора: %s", answerText), int64(answerChatID))
+			case "start":
+				continue
+			default:
+				forwardMessage(bot, update.Message, *chatID)
+				responseMessage(bot, update.Message)
+			}
 		}
 	}
+
+	res.WriteHeader(http.StatusOK)
+	res.Write([]byte("ok"))
+}
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	http.HandleFunc("/", webhook)
+
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
 func forwardMessage(bot *tgbotapi.BotAPI, message *tgbotapi.Message, chatID int64) {
